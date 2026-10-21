@@ -2,5 +2,10 @@ services:
   - type: web
     name: otogoal-backend
     env: python
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: CARGO_HOME
+        value: /tmp/.cargo
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn -w 2 -k uvicorn.workers.UvicornWorker main:app
