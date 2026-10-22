@@ -1,102 +1,81 @@
 import time
-from typing import List, Dict, Any
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-app = FastAPI(title="OtoGoal Central API", version="4.0")
-
-# CORS izinleri (Arayüz erişimi için)
+app = FastAPI()
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
+    allow_methods=["*"], allow_headers=["*"]
 )
 
-# Sunucu Belleği (In-Memory Database)
-class SystemStore:
-    config: Dict[str, Any] = {}
-    status: str = "idle"  # idle, running, stopping, error
-    match_info: Dict[str, Any] = {"score": "0 - 0", "minute": "0'", "match": "Bekleniyor..."}
-    commands: List[str] = []
-    logs: List[Dict[str, str]] = []
+# ==========================================
+# 🗄️ MÜŞTERİ VERİTABANI (YÖNETİM PANELİN)
+# ==========================================
+# Yeni müşteri eklemek, banlamak veya plan değiştirmek için sadece burayı düzenleyeceksin.
+USERS_DB = {
+    "barafella": {"key": "barafella2026", "plan": "pro", "active": True},
+    "musteri1": {"key": "123456", "plan": "normal", "active": True},
+    "banli_adam": {"key": "9999", "plan": "pro", "active": False}
+}
 
-store = SystemStore()
+# ==========================================
+# 🧠 SİSTEM HAFIZASI (Colab - Masaüstü Köprüsü)
+# ==========================================
+store = {
+    "config": {},
+    "status": "idle",
+    "commands": [],
+    "logs": []
+}
 
-class ConfigModel(BaseModel):
-    iptv_url: str
-    takim: str
-    delay: int = 105
-    bot_token: str
-    chat_id: str
-    api_id: str
-    api_hash: str
+class LoginModel(BaseModel):
+    user: str
+    key: str
 
-class CommandModel(BaseModel):
-    command: str  # GOAL, STOP, PAUSE
-
-class LogModel(BaseModel):
-    logs: List[str]
-
-class MatchUpdateModel(BaseModel):
-    score: str
-    minute: str
-    match: str
-
-@app.get("/")
-def root():
-    return {"status": "online", "system": "OtoGoal Core Active"}
+@app.post("/api/login")
+def login(data: LoginModel):
+    user_info = USERS_DB.get(data.user)
+    if user_info and user_info["key"] == data.key:
+        if user_info["active"]:
+            return {"success": True, "plan": user_info["plan"]}
+        return {"success": False, "message": "Hesabınız yönetici tarafından askıya alınmıştır!"}
+    return {"success": False, "message": "Kullanıcı adı veya lisans anahtarı hatalı!"}
 
 @app.post("/api/set-config")
-def set_config(data: ConfigModel):
-    store.config = data.dict()
-    store.status = "running"
-    store.commands.append("START")
-    return {"status": "success", "message": "Konfigürasyon alındı, Colab bekleniyor."}
+def set_config(data: dict):
+    store["config"] = data
+    store["status"] = "running"
+    store["commands"].append("START")
+    return {"status": "success"}
 
 @app.get("/api/get-config")
 def get_config():
-    return {"status": store.status, "config": store.config}
+    return {"status": store["status"], "config": store["config"]}
 
 @app.post("/api/send-cmd")
-def send_command(data: CommandModel):
-    store.commands.append(data.command)
-    if data.command == "STOP":
-        store.status = "stopping"
-    return {"status": "success", "command": data.command}
+def send_cmd(data: dict):
+    cmd = data.get("command")
+    if cmd:
+        store["commands"].append(cmd)
+        if cmd == "STOP":
+            store["status"] = "idle"
+    return {"status": "success"}
 
 @app.get("/api/get-cmds")
-def get_commands():
-    cmds = list(store.commands)
-    store.commands.clear()
+def get_cmds():
+    cmds = list(store["commands"])
+    store["commands"].clear()
     return {"commands": cmds}
 
 @app.post("/api/push-logs")
-def push_logs(data: LogModel):
-    for line in data.logs:
-        store.logs.append({
-            "timestamp": time.strftime("%H:%M:%S"),
-            "message": line
-        })
-    if len(store.logs) > 300:
-        store.logs = store.logs[-300:]
+def push_logs(data: dict):
+    new_logs = data.get("logs", [])
+    store["logs"].extend(new_logs)
+    if len(store["logs"]) > 300:
+        store["logs"] = store["logs"][-300:]
     return {"status": "ok"}
 
 @app.get("/api/get-logs")
 def get_logs():
-    return {"logs": store.logs}
-
-@app.post("/api/update-match")
-def update_match(data: MatchUpdateModel):
-    store.match_info = data.dict()
-    return {"status": "ok"}
-
-@app.get("/api/get-status")
-def get_system_status():
-    return {
-        "status": store.status,
-        "match_info": store.match_info,
-        "config_loaded": bool(store.config)
-    }
+    return {"logs": store["logs"]}
